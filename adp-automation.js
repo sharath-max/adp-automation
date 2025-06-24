@@ -43,6 +43,7 @@ async function setupBrowser() {
   await page.setGeolocation(CONFIG.location);
   
   // Grant geolocation permission for ADP domain
+  const context = browser.defaultBrowserContext();
   await context.overridePermissions('https://infoservices.securtime.adp.com', ['geolocation']);
   
   return { browser, page };
