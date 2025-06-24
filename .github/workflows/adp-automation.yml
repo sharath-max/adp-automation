@@ -33,12 +33,10 @@ jobs:
         PUNCH_TYPE: ${{ github.event.schedule == '0 5 * * 1-5' && 'IN' || 'OUT' }}
       run: node adp-automation.js
       
-    - name: Upload screenshots and logs
+    - name: Upload screenshots (if any issues)
       uses: actions/upload-artifact@v4
-      if: always() # Upload even if previous step failed
+      if: failure()
       with:
         name: debug-screenshots-${{ github.run_number }}
-        path: |
-          *.png
-          *.log
-        retention-days: 7
+        path: "*.png"
+        retention-days: 3
