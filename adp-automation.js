@@ -137,12 +137,16 @@ async function performLogin(page) {
   
   // Wait for email input and fill it
   await page.waitForSelector('input[type="email"]', { timeout: CONFIG.timeout });
-  await page.clear('input[type="email"]');
+  
+  // Clear and type email
+  await page.click('input[type="email"]', { clickCount: 3 }); // Select all
   await page.type('input[type="email"]', process.env.ADP_USERNAME);
   
   // Wait for password input and fill it
   await page.waitForSelector('input[type="password"]');
-  await page.clear('input[type="password"]');
+  
+  // Clear and type password
+  await page.click('input[type="password"]', { clickCount: 3 }); // Select all
   await page.type('input[type="password"]', process.env.ADP_PASSWORD);
   
   // Click Sign In button
@@ -299,8 +303,8 @@ async function runAutomationWithRetry() {
       }
       
       if (attempt < CONFIG.maxRetries) {
-        console.log(`Waiting 1 minute before retry...`);
-        await new Promise(resolve => setTimeout(resolve, 60000)); // Wait 1 minute
+        console.log(`Waiting 10 seconds before retry...`);
+        await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds
       } else {
         console.error('All retry attempts failed!');
         process.exit(1);
