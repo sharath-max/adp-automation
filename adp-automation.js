@@ -1,10 +1,10 @@
 const puppeteer = require('puppeteer');
 
 const CONFIG = {
-  // Your Wipro SEZ location coordinates
+  // Updated location coordinates
   location: {
-    latitude: 17.4281595,
-    longitude: 78.3507877,
+    latitude: 17.4661607,
+    longitude: 78.2846192,
     accuracy: 50
   },
   // ADP SecureTime URLs
@@ -14,7 +14,8 @@ const CONFIG = {
   },
   // Timing
   timeout: 30000,
-  delay: 2000
+  delay: 2000,
+  maxRetries: 2
 };
 
 async function setupBrowser() {
@@ -72,22 +73,13 @@ async function login(page) {
 async function punchInOut(page, type) {
   console.log(`Attempting to punch ${type}...`);
   
-  // Take initial screenshot
-  await page.screenshot({ 
-    path: `debug-initial-${type.toLowerCase()}.png`,
-    fullPage: true 
-  });
-  console.log(`Initial screenshot saved: debug-initial-${type.toLowerCase()}.png`);
-  
   // Ensure we're on the welcome page
   if (!page.url().includes('/welcome')) {
     console.log('Not on welcome page, navigating...');
     await page.goto(CONFIG.urls.welcome, { waitUntil: 'networkidle2' });
   }
   
-  console.log('Current URL:', page.url());
-  
-  // Wait a bit for the page to load completely
+  // Wait for page to load completely
   await new Promise(resolve => setTimeout(resolve, CONFIG.delay));
   
   // Handle location permission if it pops up
@@ -96,186 +88,137 @@ async function punchInOut(page, type) {
     await dialog.accept();
   });
   
-  // Take screenshot after page load
-  await page.screenshot({ 
-    path: `debug-after-load-${type.toLowerCase()}.png`,
-    fullPage: true 
-  });
-  console.log(`After load screenshot saved: debug-after-load-${type.toLowerCase()}.png`);
-  
-  // Debug: Log all buttons on the page
-  const allButtons = await page.evaluate(() => {
-    const buttons = Array.from(document.querySelectorAll('button'));
-    return buttons.map(button => ({
-      text: button.textContent.trim(),
-      className: button.className,
-      type: button.type,
-      outerHTML: button.outerHTML.substring(0, 200) // First 200 chars
-    }));
-  });
-  
-  console.log('All buttons found on page:');
-  allButtons.forEach((btn, index) => {
-    console.log(`Button ${index + 1}:`, JSON.stringify(btn, null, 2));
-  });
-  
-  // Look for the specific punch button based on type
   const buttonText = type === 'IN' ? 'Punch In' : 'Punch Out';
-  console.log(`Looking for button with text: "${buttonText}"`);
+  console.log(`Looking for button: "${buttonText}"`);
   
-  try {
-    // Method 1: Try exact text match
-    console.log('Method 1: Trying exact text match...');
-    const exactMatch = await page.evaluate((text) => {
-      const buttons = Array.from(document.querySelectorAll('button'));
-      const found = buttons.find(button => button.textContent.trim() === text);
-      if (found) {
-        console.log('Found exact match:', found.outerHTML);
-        return true;
-      }
-      return false;
-    }, buttonText);
+  // Try multiple methods to find and click the button
+  const clicked = await page.evaluate((text) => {
+    // Method 1: Exact text match
+    let buttons = Array.from(document.querySelectorAll('button.mybtn'));
+    let targetButton = buttons.find(button => button.textContent.trim() === text);
     
-    if (exactMatch) {
-      console.log('Exact match found, clicking...');
-      await page.evaluate((text) => {
-        const buttons = Array.from(document.querySelectorAll('button'));
-        const targetButton = buttons.find(button => button.textContent.trim() === text);
-        targetButton.click();
-      }, buttonText);
-    } else {
-      // Method 2: Try partial text match
-      console.log('Method 2: Trying partial text match...');
-      const partialMatch = await page.evaluate((text) => {
-        const buttons = Array.from(document.querySelectorAll('button'));
-        const found = buttons.find(button => button.textContent.trim().includes(text.split(' ')[1])); // Just "In" or "Out"
-        if (found) {
-          console.log('Found partial match:', found.outerHTML);
-          return true;
-        }
-        return false;
-      }, buttonText);
-      
-      if (partialMatch) {
-        console.log('Partial match found, clicking...');
-        await page.evaluate((text) => {
-          const buttons = Array.from(document.querySelectorAll('button'));
-          const targetButton = buttons.find(button => button.textContent.trim().includes(text.split(' ')[1]));
-          targetButton.click();
-        }, buttonText);
-      } else {
-        // Method 3: Try with .mybtn class specifically
-        console.log('Method 3: Trying .mybtn class with text match...');
-        const mybtnMatch = await page.evaluate((text) => {
-          const buttons = Array.from(document.querySelectorAll('button.mybtn'));
-          console.log('mybtn buttons found:', buttons.length);
-          buttons.forEach((btn, i) => {
-            console.log(`mybtn ${i + 1}:`, btn.textContent.trim());
-          });
-          const found = buttons.find(button => 
-            button.textContent.trim().includes('Punch') && 
-            button.textContent.trim().includes(text.split(' ')[1])
-          );
-          if (found) {
-            console.log('Found mybtn match:', found.outerHTML);
-            found.click();
-            return true;
-          }
-          return false;
-        }, buttonText);
-        
-        if (!mybtnMatch) {
-          throw new Error(`Could not find button with text containing "${buttonText}"`);
-        }
-      }
+    // Method 2: Partial text match
+    if (!targetButton) {
+      const searchTerm = text.split(' ')[1]; // "In" or "Out"
+      targetButton = buttons.find(button => 
+        button.textContent.trim().includes('Punch') && 
+        button.textContent.trim().includes(searchTerm)
+      );
     }
     
-    console.log(`Clicked ${buttonText} button`);
-    
-    // Wait for response
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    
-    // Take screenshot after clicking
-    await page.screenshot({ 
-      path: `debug-after-click-${type.toLowerCase()}.png`,
-      fullPage: true 
-    });
-    console.log(`After click screenshot saved: debug-after-click-${type.toLowerCase()}.png`);
-    
-    // Check for success message
-    const successCheck = await page.evaluate(() => {
-      const bodyText = document.body.textContent.toLowerCase();
-      return {
-        hasSuccess: bodyText.includes('success'),
-        hasSuccessful: bodyText.includes('successful'),
-        bodySnippet: document.body.textContent.substring(0, 500)
-      };
-    });
-    
-    console.log('Success check result:', JSON.stringify(successCheck, null, 2));
-    
-    if (successCheck.hasSuccess || successCheck.hasSuccessful) {
-      console.log(`Punch ${type} successful! - Success message detected`);
-    } else {
-      console.log(`Punch ${type} completed (no success message detected but button was clicked)`);
+    // Method 3: Any button containing the search term
+    if (!targetButton) {
+      buttons = Array.from(document.querySelectorAll('button'));
+      targetButton = buttons.find(button => button.textContent.trim().includes(text));
     }
     
-  } catch (error) {
-    // Take error screenshot
-    await page.screenshot({ 
-      path: `debug-error-${type.toLowerCase()}.png`,
-      fullPage: true 
-    });
-    console.log(`Error screenshot saved: debug-error-${type.toLowerCase()}.png`);
-    throw new Error(`Could not find or click ${buttonText} button: ${error.message}`);
+    if (targetButton) {
+      targetButton.click();
+      return true;
+    }
+    return false;
+  }, buttonText);
+  
+  if (!clicked) {
+    throw new Error(`Could not find or click ${buttonText} button`);
   }
   
-  // Take final screenshot for verification
-  await page.screenshot({ 
-    path: `punch-${type.toLowerCase()}-${new Date().toISOString().split('T')[0]}.png`,
-    fullPage: true 
+  console.log(`Clicked ${buttonText} button`);
+  
+  // Wait for response
+  await new Promise(resolve => setTimeout(resolve, 3000));
+  
+  // Check for success
+  const success = await page.evaluate(() => {
+    const bodyText = document.body.textContent.toLowerCase();
+    return bodyText.includes('success');
   });
-  console.log(`Final screenshot saved: punch-${type.toLowerCase()}-${new Date().toISOString().split('T')[0]}.png`);
+  
+  if (success) {
+    console.log(`Punch ${type} successful!`);
+  } else {
+    console.log(`Punch ${type} completed (button clicked)`);
+  }
 }
 
-async function main() {
-  const punchType = process.env.PUNCH_TYPE || 'IN';
+async function runAutomationWithRetry() {
+  const punchType = process.env.PUNCH_TYPE || 'IN'; // Default to IN instead of OUT
   let browser;
   
-  try {
-    console.log(`Starting ADP automation for punch ${punchType}...`);
-    console.log(`Using location: ${CONFIG.location.latitude}, ${CONFIG.location.longitude}`);
-    
-    const { browser: br, page } = await setupBrowser();
-    browser = br;
-    
-    // Handle geolocation permission proactively
-    await page.evaluateOnNewDocument(() => {
-      navigator.geolocation.getCurrentPosition = function(success, error) {
-        success({
-          coords: {
-            latitude: 17.4281595,
-            longitude: 78.3507877,
-            accuracy: 50
-          }
-        });
-      };
-    });
-    
-    await login(page);
-    await punchInOut(page, punchType);
-    
-    console.log('Automation completed successfully!');
-    
-  } catch (error) {
-    console.error('Automation failed:', error.message);
-    process.exit(1);
-  } finally {
-    if (browser) {
-      await browser.close();
+  for (let attempt = 1; attempt <= CONFIG.maxRetries; attempt++) {
+    try {
+      console.log(`Starting ADP automation attempt ${attempt}/${CONFIG.maxRetries} for punch ${punchType}...`);
+      console.log(`Using location: ${CONFIG.location.latitude}, ${CONFIG.location.longitude}`);
+      
+      const { browser: br, page } = await setupBrowser();
+      browser = br;
+      
+      // Handle geolocation permission proactively
+      await page.evaluateOnNewDocument(() => {
+        navigator.geolocation.getCurrentPosition = function(success, error) {
+          success({
+            coords: {
+              latitude: 17.4661607,
+              longitude: 78.2846192,
+              accuracy: 50
+            }
+          });
+        };
+      });
+      
+      await login(page);
+      await punchInOut(page, punchType);
+      
+      console.log('Automation completed successfully!');
+      return; // Success - exit the retry loop
+      
+    } catch (error) {
+      console.error(`Attempt ${attempt} failed:`, error.message);
+      
+      if (browser) {
+        try {
+          // Take error screenshot
+          const page = (await browser.pages())[0];
+          await page.screenshot({ 
+            path: `error-attempt-${attempt}.png`,
+            fullPage: true 
+          });
+          console.log(`Error screenshot saved: error-attempt-${attempt}.png`);
+        } catch (e) {
+          console.log('Could not take error screenshot');
+        }
+        
+        await browser.close();
+        browser = null;
+      }
+      
+      if (attempt < CONFIG.maxRetries) {
+        console.log(`Waiting 1 minute before retry...`);
+        await new Promise(resolve => setTimeout(resolve, 60000)); // Wait 1 minute
+      } else {
+        console.error('All retry attempts failed!');
+        process.exit(1);
+      }
     }
   }
 }
 
-// Run the automation
-main();
+// Determine punch type based on time if not specified
+function determinePunchType() {
+  if (process.env.PUNCH_TYPE) {
+    return process.env.PUNCH_TYPE;
+  }
+  
+  // Get current hour in IST (UTC + 5:30)
+  const now = new Date();
+  const istHour = (now.getUTCHours() + 5.5) % 24;
+  
+  // If before 2 PM IST, it's probably punch IN, otherwise punch OUT
+  return istHour < 14 ? 'IN' : 'OUT';
+}
+
+// Set the punch type
+process.env.PUNCH_TYPE = process.env.PUNCH_TYPE || determinePunchType();
+
+// Run the automation with retry mechanism
+runAutomationWithRetry();
