@@ -11,6 +11,7 @@ on:
 jobs:
   adp-punch:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     
     steps:
     - name: Checkout code
@@ -19,12 +20,11 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: '20'
+        cache: 'npm'
         
     - name: Install dependencies
-      run: |
-        npm init -y
-        npm install puppeteer
+      run: npm install puppeteer --silent
         
     - name: Run ADP automation
       env:
@@ -33,10 +33,10 @@ jobs:
         PUNCH_TYPE: ${{ github.event.schedule == '0 5 * * 1-5' && 'IN' || 'OUT' }}
       run: node adp-automation.js
       
-    - name: Upload screenshots (if any issues)
+    - name: Upload debug info (only on failure)
       uses: actions/upload-artifact@v4
       if: failure()
       with:
-        name: debug-screenshots-${{ github.run_number }}
+        name: debug-${{ github.run_number }}
         path: "*.png"
-        retention-days: 3
+        retention-days: 2
