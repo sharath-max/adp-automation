@@ -78,7 +78,7 @@ async function punchInOut(page, type) {
   }
   
   // Wait a bit for the page to load completely
-  await page.waitForTimeout(CONFIG.delay);
+  await new Promise(resolve => setTimeout(resolve, CONFIG.delay));
   
   // Handle location permission if it pops up
   page.on('dialog', async dialog => {
@@ -115,7 +115,7 @@ async function punchInOut(page, type) {
     console.log(`Clicked ${buttonText} button`);
     
     // Wait for success message or page change
-    await page.waitForTimeout(3000);
+    await new Promise(resolve => setTimeout(resolve, 3000));
     
     // Check for success message
     try {
