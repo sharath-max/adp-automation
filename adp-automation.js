@@ -50,69 +50,13 @@ async function setupBrowser() {
   return { browser, page };
 }
 
-async function login(page) {
-  console.log('Navigating to ADP SecureTime login page...');
-  await page.goto(CONFIG.urls.login, { waitUntil: 'networkidle2' });
-  
-  // Wait for email input and fill it
-  await page.waitForSelector('input[type="email"]', { timeout: CONFIG.timeout });
-  await page.type('input[type="email"]', process.env.ADP_USERNAME);
-  
-  // Wait for password input and fill it
-  await page.waitForSelector('input[type="password"]');
-  await page.type('input[type="password"]', process.env.ADP_PASSWORD);
-  
-  // Click Sign In button
-  await page.click('st-button[type="submit"] button.mybtn');
-  
-  // Wait for redirect to welcome page
-  await page.waitForNavigation({ waitUntil: 'networkidle2' });
-  console.log('Login successful - redirected to welcome page');
-}
-
-async function punchInOut(page, type) {
-  console.log(`Attempting to punch ${type}...`);
-  console.log(`Current URL: ${page.url()}`);
-  
-  // Take initial screenshot to see what we're working with
-  await page.screenshot({ 
-    path: `debug-before-${type.toLowerCase()}.png`,
-    fullPage: true 
-  });
-  console.log(`Initial screenshot saved: debug-before-${type.toLowerCase()}.png`);
-  
-  // Navigate to welcome page (always do this to be safe)
-  console.log('Navigating to welcome page...');
-  await page.goto(CONFIG.urls.welcome, { waitUntil: 'networkidle2' });
-  console.log(`After navigation URL: ${page.url()}`);
-  
-  // Wait for page to load completely
-  await new Promise(resolve => setTimeout(resolve, CONFIG.delay));
-  
-  // Take screenshot after navigation
-  await page.screenshot({ 
-    path: `debug-after-nav-${type.toLowerCase()}.png`,
-    fullPage: true 
-  });
-  console.log(`After navigation screenshot saved: debug-after-nav-${type.toLowerCase()}.png`);
-  
-  // Handle location permission if it pops up
-  page.on('dialog', async dialog => {
-    console.log('Dialog detected:', dialog.message());
-    await dialog.accept();
-  });
-  
-  const buttonText = type === 'IN' ? 'Punch In' : 'Punch Out';
-  console.log(`Looking for button: "${buttonText}"`);
-  
-  // Debug: Check what's actually on the page
+async function checkPageState(page) {
   const pageInfo = await page.evaluate(() => {
     return {
       title: document.title,
       url: window.location.href,
-      bodyText: document.body ? document.body.textContent.substring(0, 500) : 'No body found',
+      bodyText: document.body ? document.body.textContent.substring(0, 300) : 'No body found',
       buttonCount: document.querySelectorAll('button').length,
-      mybtnCount: document.querySelectorAll('button.mybtn').length,
       allButtons: Array.from(document.querySelectorAll('button')).map(btn => ({
         text: btn.textContent.trim(),
         className: btn.className,
@@ -121,29 +65,122 @@ async function punchInOut(page, type) {
     };
   });
   
-  console.log('Page info:', JSON.stringify(pageInfo, null, 2));
+  // Determine page state
+  const hasSignIn = pageInfo.allButtons.some(btn => btn.text.includes('Sign In'));
+  const hasPunchIn = pageInfo.allButtons.some(btn => btn.text.includes('Punch In'));
+  const hasPunchOut = pageInfo.allButtons.some(btn => btn.text.includes('Punch Out'));
+  const isOnWelcome = pageInfo.url.includes('/welcome') && !hasSignIn;
   
-  // Wait a bit more if page seems to be loading
-  if (pageInfo.buttonCount === 0) {
-    console.log('No buttons found, waiting additional 5 seconds...');
-    await new Promise(resolve => setTimeout(resolve, 5000));
+  return {
+    ...pageInfo,
+    pageState: {
+      needsLogin: hasSignIn,
+      onWelcomePage: isOnWelcome,
+      hasPunchIn,
+      hasPunchOut,
+      readyToPunch: (hasPunchIn || hasPunchOut) && !hasSignIn
+    }
+  };
+}
+
+async function ensureCorrectPage(page, targetAction) {
+  let attempts = 0;
+  const maxAttempts = 3;
+  
+  while (attempts < maxAttempts) {
+    attempts++;
+    console.log(`Page check attempt ${attempts}/${maxAttempts}`);
     
-    // Take another screenshot
+    const state = await checkPageState(page);
+    console.log(`Page state:`, JSON.stringify(state.pageState, null, 2));
+    console.log(`Available buttons: ${state.allButtons.map(b => b.text).join(', ')}`);
+    
+    // Take screenshot for debugging
     await page.screenshot({ 
-      path: `debug-after-wait-${type.toLowerCase()}.png`,
+      path: `page-state-attempt-${attempts}.png`,
       fullPage: true 
     });
+    
+    if (state.pageState.needsLogin) {
+      console.log('Detected login page - performing login...');
+      await performLogin(page);
+      await new Promise(resolve => setTimeout(resolve, 3000)); // Wait after login
+      continue;
+    }
+    
+    if (state.pageState.readyToPunch) {
+      console.log('Page is ready for punching!');
+      return state;
+    }
+    
+    if (state.pageState.onWelcomePage || state.url.includes('/welcome')) {
+      console.log('On welcome page but no punch buttons visible, waiting...');
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      continue;
+    }
+    
+    // If we're not on the right page, try to navigate
+    console.log('Not on correct page, attempting navigation to welcome...');
+    try {
+      await page.goto(CONFIG.urls.welcome, { waitUntil: 'networkidle2' });
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    } catch (error) {
+      console.log('Navigation failed:', error.message);
+    }
   }
   
-  // Try multiple methods to find and click the button
+  throw new Error('Could not get to the correct page state after multiple attempts');
+}
+
+async function performLogin(page) {
+  console.log('Performing login...');
+  
+  // Wait for email input and fill it
+  await page.waitForSelector('input[type="email"]', { timeout: CONFIG.timeout });
+  await page.clear('input[type="email"]');
+  await page.type('input[type="email"]', process.env.ADP_USERNAME);
+  
+  // Wait for password input and fill it
+  await page.waitForSelector('input[type="password"]');
+  await page.clear('input[type="password"]');
+  await page.type('input[type="password"]', process.env.ADP_PASSWORD);
+  
+  // Click Sign In button
+  await page.click('st-button[type="submit"] button.mybtn');
+  
+  // Wait for page to change
+  await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 });
+  console.log('Login completed');
+}
+
+async function punchInOut(page, type) {
+  console.log(`Attempting to punch ${type}...`);
+  
+  // Ensure we're on the correct page and logged in
+  const state = await ensureCorrectPage(page, type);
+  
+  const buttonText = type === 'IN' ? 'Punch In' : 'Punch Out';
+  console.log(`Looking for button: "${buttonText}"`);
+  
+  // Check if the required button is available
+  const hasRequiredButton = state.allButtons.some(btn => 
+    btn.text.includes('Punch') && btn.text.includes(type === 'IN' ? 'In' : 'Out')
+  );
+  
+  if (!hasRequiredButton) {
+    throw new Error(`Required button "${buttonText}" not found on page. Available buttons: ${state.allButtons.map(b => b.text).join(', ')}`);
+  }
+  
+  // Handle location permission if it pops up
+  page.on('dialog', async dialog => {
+    console.log('Dialog detected:', dialog.message());
+    await dialog.accept();
+  });
+  
+  // Try to find and click the button
   const result = await page.evaluate((text) => {
     const allButtons = Array.from(document.querySelectorAll('button'));
     console.log(`Found ${allButtons.length} total buttons`);
-    
-    // Log all buttons for debugging
-    allButtons.forEach((btn, i) => {
-      console.log(`Button ${i + 1}: "${btn.textContent.trim()}" (class: ${btn.className})`);
-    });
     
     // Method 1: Exact text match
     let targetButton = allButtons.find(button => button.textContent.trim() === text);
@@ -181,7 +218,7 @@ async function punchInOut(page, type) {
   console.log('Button click result:', JSON.stringify(result, null, 2));
   
   if (!result.success) {
-    throw new Error(`Could not find button "${buttonText}". Available buttons: ${result.buttonTexts.join(', ')}`);
+    throw new Error(`Could not click button "${buttonText}". Available buttons: ${result.buttonTexts.join(', ')}`);
   }
   
   console.log(`Clicked ${buttonText} button using ${result.method} method`);
@@ -191,7 +228,7 @@ async function punchInOut(page, type) {
   
   // Take screenshot after clicking
   await page.screenshot({ 
-    path: `debug-after-click-${type.toLowerCase()}.png`,
+    path: `success-${type.toLowerCase()}.png`,
     fullPage: true 
   });
   
@@ -233,7 +270,9 @@ async function runAutomationWithRetry() {
         };
       });
       
-      await login(page);
+      // Start by going to login page
+      await page.goto(CONFIG.urls.login, { waitUntil: 'networkidle2' });
+      
       await punchInOut(page, punchType);
       
       console.log('Automation completed successfully!');
