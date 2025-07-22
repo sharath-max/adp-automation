@@ -2,8 +2,8 @@ const puppeteer = require('puppeteer');
 
 const CONFIG = {
   location: {
-    latitude: 17.4661607,
-    longitude: 78.2846192,
+    latitude: 17.4325450058069,
+    longitude: 78.26951223842383,
     accuracy: 50
   },
   urls: {
