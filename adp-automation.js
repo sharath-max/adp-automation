@@ -250,10 +250,10 @@ async function runAutomationWithRetry() {
 }
 
 function determinePunchType() {
-  if (process.env.PUNCH_TYPE) {
-    console.log(`Using environment PUNCH_TYPE: ${process.env.PUNCH_TYPE}`);
-    return process.env.PUNCH_TYPE;
-  }
+  // if (process.env.PUNCH_TYPE) {
+  //   console.log(`Using environment PUNCH_TYPE: ${process.env.PUNCH_TYPE}`);
+  //   return process.env.PUNCH_TYPE;
+  // }
   
   const now = new Date();
   const istTime = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
