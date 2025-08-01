@@ -269,5 +269,6 @@ function determinePunchType() {
   }
 }
 
-process.env.PUNCH_TYPE = process.env.PUNCH_TYPE || determinePunchType();
+//process.env.PUNCH_TYPE = process.env.PUNCH_TYPE || determinePunchType();
+process.env.PUNCH_TYPE = determinePunchType();
 runAutomationWithRetry();
