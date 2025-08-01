@@ -188,7 +188,8 @@ async function punchInOut(page, type) {
 }
 
 async function runAutomationWithRetry() {
-  const punchType = process.env.PUNCH_TYPE || determinePunchType();
+  //const punchType = process.env.PUNCH_TYPE || determinePunchType();
+  const punchType = determinePunchType();
   let browser;
   
   for (let attempt = 1; attempt <= CONFIG.maxRetries; attempt++) {
